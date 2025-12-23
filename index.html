@@ -1,0 +1,289 @@
+<!DOCTYPE html>
+<html lang="ar">
+<head>
+<meta charset="UTF-8">
+<title>مدير المهام</title>
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+
+<style>
+*{box-sizing:border-box;font-family:Segoe UI}
+body{margin:0;background:#020617;color:white}
+.container{max-width:1000px;margin:auto;padding:20px}
+h1{text-align:center}
+
+.form,.task{
+  background:#0f172a;
+  padding:15px;
+  border-radius:15px;
+  margin-bottom:15px
+}
+
+input,textarea,select,button{
+  width:100%;
+  padding:10px;
+  margin:5px 0;
+  border:none;
+  border-radius:10px;
+  background:#1e293b;
+  color:white
+}
+
+button{
+  background:#38bdf8;
+  color:black;
+  font-weight:bold;
+  cursor:pointer
+}
+
+.days{
+  display:flex;
+  flex-wrap:wrap;
+  gap:5px;
+  margin-bottom:15px
+}
+
+.days button{
+  flex:1;
+  background:#1e293b
+}
+
+.days button.active{
+  background:#38bdf8;
+  color:black
+}
+
+.task.done{
+  border:2px solid #22c55e;
+  opacity:.7
+}
+
+.timer{
+  color:#38bdf8;
+  font-weight:bold
+}
+
+.flex{
+  display:flex;
+  gap:5px;
+  flex-wrap:wrap
+}
+
+.flex button{
+  flex:1
+}
+
+.delete{
+  background:#ef4444 !important;
+  color:white !important
+}
+
+.time{
+  background:#facc15 !important;
+  color:black !important
+}
+</style>
+</head>
+
+<body>
+
+<div class="container">
+<h1>📅 مدير المهام اليومي</h1>
+
+<div class="form">
+  <input id="taskTitle" placeholder="اسم المهمة">
+  <textarea id="taskDesc" placeholder="وصف المهمة"></textarea>
+  <input id="taskTime" type="number" placeholder="الوقت بالدقائق">
+  <select id="taskDay"></select>
+  <button id="addBtn">➕ إضافة المهمة</button>
+</div>
+
+<div class="days" id="days"></div>
+<div id="tasks"></div>
+<div id="tasks-tow"></div>
+
+</div>
+
+<audio id="alarm">
+  <source src="https://actions.google.com/sounds/v1/alarms/alarm_clock.ogg">
+</audio>
+
+<script>
+const DAYS = ["الاحد الاسبوع القادم","الاثنين الاسبوع القادم","الثلاثاء","الأربعاء","الخميس","الجمعة","السبت"];
+
+let tasks = JSON.parse(localStorage.getItem("tasks")) || [];
+let currentDay = DAYS[0];
+let timers = {};
+
+/* تجهيز الأيام */
+const daySelect = document.getElementById("taskDay");
+DAYS.forEach(d=>{
+  const opt=document.createElement("option");
+  opt.value=d;
+  opt.textContent=d;
+  daySelect.appendChild(opt);
+});
+
+document.getElementById("addBtn").onclick = addTask;
+
+function save(){
+  localStorage.setItem("tasks", JSON.stringify(tasks));
+}
+
+function formatTime(seconds){
+  let m = Math.floor(seconds/60);
+  let s = seconds % 60;
+  return `${m}:${s<10?"0"+s:s}`;
+}
+
+function addTask(){
+  const title = taskTitle.value.trim();
+  const desc  = taskDesc.value.trim();
+  const time  = Number(taskTime.value);
+  const day   = taskDay.value;
+
+  if(!title || !time){
+    alert("اكتب اسم المهمة والوقت");
+    return;
+  }
+
+  tasks.push({
+    id: Date.now(),
+    title,
+    desc,
+    time: time * 60,
+    day,
+    done:false,
+    started:false
+  });
+
+  save();
+  renderTasks();
+
+  taskTitle.value = "";
+  taskDesc.value = "";
+  taskTime.value = "";
+}
+
+function renderDays(){
+  const box = document.getElementById("days");
+  box.innerHTML = "";
+
+  DAYS.forEach(d=>{
+    const btn = document.createElement("button");
+    btn.textContent = d;
+    if(d === currentDay) btn.classList.add("active");
+    btn.onclick = ()=>{
+      currentDay = d;
+      renderDays();
+      renderTasks();
+    };
+    box.appendChild(btn);
+  });
+}
+
+function renderTasks(){
+  const box = document.getElementById("tasks");
+  box.innerHTML = "";
+
+  tasks.filter(t=>t.day===currentDay).forEach(task=>{
+    const div = document.createElement("div");
+    div.className = "task" + (task.done ? " done" : "");
+
+    div.innerHTML = `
+      <h3>${task.title}</h3>
+      <p>${task.desc}</p>
+      <div class="timer" id="timer-${task.id}">
+        ${task.started ? `⏳ ${formatTime(task.time)}` : `⏳ ${formatTime(task.time)} (لم تبدأ بعد)`}
+      </div>
+      <div class="flex">
+        ${!task.started && !task.done ? `<button onclick="startTask(${task.id})">▶️ ابدأ</button>` : ""}
+        ${task.started && !task.done ? `<button onclick="finishTask(${task.id})">✔️ إنهاء</button>` : ""}
+        ${!task.done ? `<button class="time" onclick="addMoreTime(${task.id})">⏱️ وقت</button>` : ""}
+        <button class="delete" onclick="deleteTask(${task.id})">🗑️ حذف</button>
+      </div>
+    `;
+    box.appendChild(div);
+  });
+}
+
+function startTask(id){
+  const task = tasks.find(t=>t.id===id);
+  const timerEl = document.getElementById("timer-"+id);
+  const alarm = document.getElementById("alarm");
+
+  if(task.started) return; // لو بدأت قبل كده
+
+  task.started = true;
+  save();
+
+  timers[id] = setInterval(()=>{
+    if(task.time > 0){
+      task.time--;
+      timerEl.textContent = `⏳ ${formatTime(task.time)}`;
+      save();
+    } else {
+      clearInterval(timers[id]);
+      alarm.play();
+      askFinish(task);
+    }
+  },1000);
+
+  timerEl.textContent = `⏳ ${formatTime(task.time)}`;
+}
+
+function addMoreTime(id){
+  const task = tasks.find(t=>t.id===id);
+  let extra = prompt("أدخل وقت إضافي بالدقائق:");
+
+  if(!extra || isNaN(extra)) return;
+
+  task.time += Number(extra) * 60;
+  save();
+
+  const timerEl = document.getElementById("timer-"+id);
+  if(timerEl) timerEl.textContent = `⏳ ${formatTime(task.time)}`;
+}
+
+function askFinish(task){
+  if(confirm("هل أنهيت المهمة؟")){
+    task.done = true;
+  }else{
+    const extra = prompt("وقت إضافي بالدقائق");
+    if(extra){
+      task.time = Number(extra) * 60;
+      task.started = false;
+      const timerEl = document.getElementById("timer-"+task.id);
+      if(timerEl) timerEl.textContent = `⏳ ${formatTime(task.time)} (لم تبدأ بعد)`;
+    }
+  }
+  save();
+  renderTasks();
+}
+
+function finishTask(id){
+  const task = tasks.find(t=>t.id===id);
+  task.done = true;
+  clearInterval(timers[id]);
+  save();
+  renderTasks();
+}
+
+function deleteTask(id){
+  if(!confirm("متأكد إنك عايز تحذف المهمة؟")) return;
+
+  if(timers[id]){
+    clearInterval(timers[id]);
+    delete timers[id];
+  }
+
+  tasks = tasks.filter(t => t.id !== id);
+  save();
+  renderTasks();
+}
+
+renderDays();
+renderTasks();
+</script>
+
+</body>
+</html>
